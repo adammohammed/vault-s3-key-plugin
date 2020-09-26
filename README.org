@@ -1,0 +1,3 @@
+* S3 Key Vault Plugin
+
+This plugin can be used by your application to get short-lived s3 credentials
