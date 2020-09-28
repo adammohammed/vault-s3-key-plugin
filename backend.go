@@ -99,10 +99,6 @@ func (b *backend) paths() []*framework.Path {
 
 					Summary: "Read the secret.",
 				},
-				logical.DeleteOperation: &framework.PathOperation{
-					Callback: b.handleDelete,
-					Summary:  "Deletes the secret.",
-				},
 			},
 
 			ExistenceCheck: b.handleExistenceCheck,
@@ -165,16 +161,4 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, data *fr
 	}
 
 	return resp, nil
-}
-
-func (b *backend) handleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	if req.ClientToken == "" {
-		return nil, fmt.Errorf("client token empty")
-	}
-
-	path := data.Get("path").(string)
-
-	delete(b.store, req.ClientToken+"/"+path)
-
-	return nil, nil
 }
