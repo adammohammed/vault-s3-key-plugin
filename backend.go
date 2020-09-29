@@ -17,13 +17,21 @@ import (
 type backend struct {
 	*framework.Backend
 	client linodego.Client
-	store  map[string][]byte
+	store  map[string]S3Credential
 }
 
 type S3Credential struct {
 	ID        int
 	AccessKey string
 	SecretKey string
+}
+
+func (c S3Credential) Format() map[string]interface{} {
+	m := make(map[string]interface{})
+	m["ID"] = c.ID
+	m["access_key"] = c.AccessKey
+	m["secret_key"] = c.SecretKey
+	return m
 }
 
 func CreateLinodeClient(token string) linodego.Client {
@@ -36,10 +44,27 @@ func CreateLinodeClient(token string) linodego.Client {
 	return linodego.NewClient(transportClient)
 }
 
-func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
+func CreateS3Key(client linodego.Client, path string) (S3Credential, error) {
+	opts := linodego.ObjectStorageKeyCreateOptions{
+		Label: path,
+	}
 
+	key, err := client.CreateObjectStorageKey(context.TODO(), opts)
+
+	if err != nil {
+		return S3Credential{}, errwrap.Wrapf("key create failed: {{err}}", err)
+	}
+
+	return S3Credential{
+		ID:        key.ID,
+		AccessKey: key.AccessKey,
+		SecretKey: key.SecretKey,
+	}, nil
+}
+
+func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
 	b := &backend{
-		store: make(map[string][]byte),
+		store: make(map[string]S3Credential),
 	}
 
 	b.Backend = &framework.Backend{
@@ -122,42 +147,32 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, data *fr
 	}
 
 	path := data.Get("path").(string)
-	opts := linodego.ObjectStorageKeyCreateOptions{
-		Label: path,
-	}
+	credPath := fmt.Sprintf("%v/%v", req.ClientToken, path)
+	keyData, exists := b.store[credPath]
+	if !exists {
+		var err error
+		keyData, err := CreateS3Key(b.client, path)
 
-	key, err := b.client.CreateObjectStorageKey(context.TODO(), opts)
-
-	if err != nil {
-		return nil, errwrap.Wrapf("key create failed: {{err}}", err)
-	}
-
-	keyData := S3Credential{
-		ID:        key.ID,
-		AccessKey: key.AccessKey,
-		SecretKey: key.SecretKey,
-	}
-
-	keys := make(map[string]interface{}, 3)
-	keys["ID"] = keyData.ID
-	keys["AccessKey"] = keyData.AccessKey
-	keys["SecretKey"] = keyData.SecretKey
-
-	go func() {
-		lifetime := time.After(30 * time.Second)
-		select {
-
-		case <-lifetime:
-			err := b.client.DeleteObjectStorageKey(context.TODO(), keyData.ID)
-			if err != nil {
-				b.Logger().Warn("Couldn't delete key [%v]", keyData.ID)
-			}
+		if err != nil {
+			b.Logger().Warn("Could not create credential", "error", err)
 		}
-	}()
+		b.store[credPath] = keyData
 
-	// Generate the response
+		go func() {
+			lifetime := time.After(30 * time.Second)
+			select {
+			case <-lifetime:
+				err := b.client.DeleteObjectStorageKey(context.TODO(), keyData.ID)
+				delete(b.store, credPath)
+				if err != nil {
+					b.Logger().Warn("couldn't delete key", "KeyID", keyData.ID)
+				}
+			}
+		}()
+	}
+
 	resp := &logical.Response{
-		Data: keys,
+		Data: keyData.Format(),
 	}
 
 	return resp, nil
