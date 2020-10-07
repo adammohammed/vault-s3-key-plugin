@@ -148,10 +148,12 @@ func (b *backend) handleRead(ctx context.Context, req *logical.Request, data *fr
 
 	path := data.Get("path").(string)
 	credPath := fmt.Sprintf("%v/%v", req.ClientToken, path)
+
+	var keyData S3Credential
 	keyData, exists := b.store[credPath]
 	if !exists {
 		var err error
-		keyData, err := CreateS3Key(b.client, path)
+		keyData, err = CreateS3Key(b.client, path)
 
 		if err != nil {
 			b.Logger().Warn("Could not create credential", "error", err)

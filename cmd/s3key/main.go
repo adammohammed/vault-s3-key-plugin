@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	s3key "github.com/adammohammed/s3-key-plugin"
+	s3key "github.com/adammohammed/vault-s3-key-plugin"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/sdk/plugin"
